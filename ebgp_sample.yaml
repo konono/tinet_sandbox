@@ -1,0 +1,90 @@
+---
+nodes:
+  - name: R01
+    image: kono/frr-ubuntu2204:8
+    buildfile: ./frr8_ubuntu2204/Dockerfile
+    interfaces:
+      - { name: net0, type: direct, args: R02#net0 }
+      - { name: net1, type: direct, args: C01#net0 }
+  - name: R02
+    image: kono/frr-ubuntu2204:8
+    buildfile: ./frr8_ubuntu2204/Dockerfile
+    interfaces:
+      - { name: net0, type: direct, args: R01#net0 }
+      - { name: net1, type: direct, args: C02#net0 }
+
+  - name: C01
+    image: slankdev/ubuntu:16.04
+    interfaces:
+      - { name: net0, type: direct, args: R01#net1 }
+  - name: C02
+    image: slankdev/ubuntu:16.04
+    interfaces:
+      - { name: net0, type: direct, args: R02#net1 }
+
+node_configs:
+  - name: R01
+    cmds:
+      - cmd: /usr/lib/frr/frrinit.sh start
+      - cmd: ip addr add 10.0.0.1/24 dev net0
+      - cmd: ip addr add 10.3.0.1/24 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "interface net0"
+          -c "ip address 10.0.0.1/24"
+          -c "interface net1"
+          -c "ip address 10.3.0.1/24"
+          -c "router bgp 100"
+          -c "bgp router-id 1.1.1.1"
+          -c "neighbor NET0-PEER peer-group"
+          -c "neighbor NET0-PEER remote-as 200"
+          -c "neighbor 10.0.0.2 peer-group NET0-PEER"
+          -c "address-family ipv4 unicast"
+          -c "network 10.3.0.0/24"
+          -c "neighbor NET0-PEER soft-reconfiguration inbound"
+          -c "neighbor NET0-PEER route-map ANY-in in"
+          -c "neighbor NET0-PEER route-map NET1-out out"
+          -c "ip prefix-list NET1 seq 1 permit 10.3.0.0/24"
+          -c "route-map NET1-out permit 1"
+          -c "match ip address prefix-list NET1"
+          -c "route-map ANY-in permit 1"
+  - name: R02
+    cmds:
+      - cmd: /usr/lib/frr/frrinit.sh start
+      - cmd: ip addr add 10.0.0.2/24 dev net0
+      - cmd: ip addr add 10.4.0.1/24 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "interface net0"
+          -c "ip address 10.0.0.2/24"
+          -c "interface net1"
+          -c "ip address 10.4.0.1/24"
+          -c "router bgp 200"
+          -c "bgp router-id 2.2.2.2"
+          -c "neighbor NET0-PEER peer-group"
+          -c "neighbor NET0-PEER remote-as 100"
+          -c "neighbor 10.0.0.1 peer-group NET0-PEER"
+          -c "address-family ipv4 unicast"
+          -c "network 10.4.0.0/24"
+          -c "neighbor NET0-PEER soft-reconfiguration inbound"
+          -c "neighbor NET0-PEER route-map ANY-in in"
+          -c "neighbor NET0-PEER route-map NET1-out out"
+          -c "ip prefix-list NET1 seq 1 permit 10.4.0.0/24"
+          -c "route-map NET1-out permit 1"
+          -c "match ip address prefix-list NET1"
+          -c "route-map ANY-in permit 1"
+
+  - name: C01
+    cmds:
+      - cmd: ip addr add 10.3.0.2/24 dev net0
+      - cmd: ip route del default
+      - cmd: ip route add default via 10.3.0.1
+  - name: C02
+    cmds:
+      - cmd: ip addr add 10.4.0.2/24 dev net0
+      - cmd: ip route del default
+      - cmd: ip route add default via 10.4.0.1
+
+test:
+  - cmds:
+      - cmd: docker exec C01 ping -c2 10.4.0.2
