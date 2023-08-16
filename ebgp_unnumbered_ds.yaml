@@ -1,0 +1,133 @@
+---
+nodes:
+  - name: R01
+    image: kono/frr-ubuntu2204:8
+    buildfile: ./frr8_ubuntu2204/Dockerfile
+    interfaces:
+      - { name: net0, type: direct, args: R02#net0 }
+      - { name: net1, type: direct, args: C01#net0 }
+    sysctls:
+      - sysctl: net.ipv6.conf.all.disable_ipv6=0
+      - sysctl: net.ipv6.conf.default.disable_ipv6=0
+      - sysctl: net.ipv4.ip_forward=1
+      - sysctl: net.ipv6.conf.all.forwarding=1
+  - name: R02
+    image: kono/frr-ubuntu2204:8
+    buildfile: ./frr8_ubuntu2204/Dockerfile
+    interfaces:
+      - { name: net0, type: direct, args: R01#net0 }
+      - { name: net1, type: direct, args: C02#net0 }
+    sysctls:
+      - sysctl: net.ipv6.conf.all.disable_ipv6=0
+      - sysctl: net.ipv6.conf.default.disable_ipv6=0
+      - sysctl: net.ipv4.ip_forward=1
+      - sysctl: net.ipv6.conf.all.forwarding=1
+  - name: C01
+    image: slankdev/ubuntu:16.04
+    interfaces:
+      - { name: net0, type: direct, args: R01#net1 }
+    sysctls:
+      - sysctl: net.ipv6.conf.all.disable_ipv6=0
+      - sysctl: net.ipv6.conf.default.disable_ipv6=0
+  - name: C02
+    image: slankdev/ubuntu:16.04
+    interfaces:
+      - { name: net0, type: direct, args: R02#net1 }
+    sysctls:
+      - sysctl: net.ipv6.conf.all.disable_ipv6=0
+      - sysctl: net.ipv6.conf.default.disable_ipv6=0
+node_configs:
+  - name: R01
+    cmds:
+      - cmd: /usr/lib/frr/frrinit.sh start
+      - cmd: ip addr add 10.0.0.1/24 dev net0
+      - cmd: ip addr add 2000::1/64 dev net0
+      - cmd: ip addr add 10.3.0.1/24 dev net1
+      - cmd: ip addr add 2003::1/64 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "interface net0"
+          -c " ip address 10.0.0.1/24"
+          -c " ipv6 address 2000::1/64"
+          -c " ipv6 nd ra-interval 3"
+          -c " no ipv6 nd suppress-ra"
+          -c "!"
+          -c "interface net1"
+          -c " ip address 10.3.0.1/24"
+          -c " ipv6 address 2003::1/64"
+          -c " ipv6 nd ra-interval 3"
+          -c " no ipv6 nd suppress-ra"
+          -c "router bgp 100"
+          -c " bgp router-id 1.1.1.1"
+          -c " bgp bestpath as-path multipath-relax"
+          -c " no bgp ebgp-requires-policy"
+          -c " neighbor NET0-PEER peer-group"
+          -c " neighbor NET0-PEER remote-as external"
+          -c " neighbor net0 interface peer-group NET0-PEER"
+          -c " address-family ipv4 unicast"
+          -c "  neighbor NET0-PEER activate"
+          -c "  redistribute connected"
+          -c " exit-address-family"
+          -c " address-family ipv6 unicast"
+          -c "  neighbor NET0-PEER activate"
+          -c "  redistribute connected"
+          -c "  network 2003::0/64"
+          -c " exit-address-family"
+  - name: R02
+    cmds:
+      - cmd: /usr/lib/frr/frrinit.sh start
+      - cmd: ip addr add 10.0.0.2/24 dev net0
+      - cmd: ip addr add 2000::2/64 dev net0
+      - cmd: ip addr add 10.4.0.1/24 dev net1
+      - cmd: ip addr add 2004::1/64 dev net1
+      - cmd: >-
+          vtysh -c "conf t"
+          -c "interface net0"
+          -c " ip address 10.0.0.2/24"
+          -c " ipv6 address 2000::2/64"
+          -c " ipv6 nd ra-interval 3"
+          -c " no ipv6 nd suppress-ra"
+          -c "!"
+          -c "interface net1"
+          -c " ip address 10.4.0.1/24"
+          -c " ipv6 address 2004::1/64"
+          -c " ipv6 nd ra-interval 3"
+          -c " no ipv6 nd suppress-ra"
+          -c "!"
+          -c "router bgp 200"
+          -c "bgp router-id 2.2.2.2"
+          -c " bgp bestpath as-path multipath-relax"
+          -c " no bgp ebgp-requires-policy"
+          -c " neighbor NET0-PEER peer-group"
+          -c " neighbor NET0-PEER remote-as external"
+          -c " neighbor net0 interface peer-group NET0-PEER"
+          -c " address-family ipv4 unicast"
+          -c "  neighbor NET0-PEER activate"
+          -c "  redistribute connected"
+          -c " exit-address-family"
+          -c " address-family ipv6 unicast"
+          -c "  neighbor NET0-PEER activate"
+          -c "  redistribute connected"
+          -c "  network 2004::0/64"
+          -c " exit-address-family"
+  - name: C01
+    cmds:
+      - cmd: ip addr add 10.3.0.2/24 dev net0
+      - cmd: ip addr add 2003::2/64 dev net0
+      - cmd: ip route del default
+      - cmd: ip -6 route del default
+      - cmd: ip route add default via 10.3.0.1
+      - cmd: ip -6 route add default via 2003::1
+  - name: C02
+    cmds:
+      - cmd: ip addr add 10.4.0.2/24 dev net0
+      - cmd: ip addr add 2004::2/64 dev net0
+      - cmd: ip route del default
+      - cmd: ip -6 route del default
+      - cmd: ip route add default via 10.4.0.1
+      - cmd: ip -6 route add default via 2004::1
+
+test:
+  - cmds:
+      - cmd: docker exec C01 ping -c2 10.4.0.2
+      - cmd: docker exec C01 ping6 -c2 2004::2
